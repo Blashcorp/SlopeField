@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slope Field Calculator</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background: #f5f5f5;
+  }
+
+  h1 {
+    font-size: 22px;
+    margin: 0 0 16px 0;
+    color: #222;
+  }
+
+  .top-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .top-bar label { font-size: 15px; color: #333; }
+
+  .top-bar input[type="text"] {
+    font-size: 15px;
+    padding: 6px 10px;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    width: 180px;
+  }
+
+  button {
+    padding: 6px 16px;
+    font-size: 14px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .btn-draw { background: #3a7bd5; color: white; }
+  .btn-draw:hover { background: #2f6ab0; }
+  .btn-clear { background: #ddd; color: #444; }
+  .btn-clear:hover { background: #bbb; }
+
+  #status { font-size: 13px; color: #4caf50; }
+
+  .layout {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  canvas {
+    background: white;
+    border: 1px solid #ccc;
+    cursor: crosshair;
+    display: block;
+  }
+
+  .sidebar {
+    width: 240px;
+    background: white;
+    border: 1px solid #ccc;
+    padding: 14px;
+    min-height: 200px;
+  }
+
+  .sidebar h2 {
+    font-size: 15px;
+    margin: 0 0 12px 0;
+    color: #222;
+    font-weight: bold;
+  }
+
+  .sol-card {
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+  }
+
+  .sol-card:last-child { border-bottom: none; }
+
+  .sol-point {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 3px;
+  }
+
+  .sol-answer {
+    font-size: 14px;
+    color: #222;
+  }
+
+  .sol-unsolved { font-size: 13px; color: #999; }
+
+  .empty { font-size: 13px; color: #aaa; }
+
+  .hint { font-size: 11px; color: #bbb; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<h1>Slope Field Calculator</h1>
+
+<div class="top-bar">
+  <label>dy/dx =</label>
+  <input id="eqn" type="text" value="x - y" autocomplete="off" spellcheck="false" />
+  <label style="margin-left:8px">x₀</label>
+  <input id="x0" type="text" value="0" style="width:50px" />
+  <label>y₀</label>
+  <input id="y0" type="text" value="1" style="width:50px" />
+  <button class="btn-draw" id="drawBtn">Draw Curve</button>
+  <button class="btn-clear" id="clearBtn">Clear</button>
+  <span id="status">✓</span>
+</div>
+
+<div class="layout">
+  <canvas id="sf" width="620" height="620"></canvas>
+  <div class="sidebar">
+    <h2>Solutions</h2>
+    <div id="solList"><p class="empty">Click the graph or enter a point above to see the particular solution.</p></div>
+    <p class="hint">Click anywhere on the graph to draw a curve from that point.</p>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('sf');
+const ctx = canvas.getContext('2d');
+const WIN = 10;   // window is -10 to +10
+const PAD = 40;
+const SIZE = canvas.width;
+
+const COLORS = ['#e53935','#1e88e5','#43a047','#8e24aa','#fb8c00','#00897b'];
+let curves = [];
+let ci = 0;
+
+function toC(wx, wy) {
+  const x = PAD + (wx + WIN) / (2 * WIN) * (SIZE - 2 * PAD);
+  const y = (SIZE - PAD) - (wy + WIN) / (2 * WIN) * (SIZE - 2 * PAD);
+  return [x, y];
+}
+
+function toW(cx, cy) {
+  const wx = (cx - PAD) / (SIZE - 2 * PAD) * (2 * WIN) - WIN;
+  const wy = WIN - (cy - PAD) / (SIZE - 2 * PAD) * (2 * WIN);
+  return [wx, wy];
+}
+
+function safeEval(expr, x, y) {
+  try {
+    const f = new Function('x','y','sin','cos','tan','exp','log','abs','sqrt','PI',
+      '"use strict"; return (' + expr + ');');
+    const v = f(x, y, Math.sin, Math.cos, Math.tan, Math.exp, Math.log, Math.abs, Math.sqrt, Math.PI);
+    return isFinite(v) ? v : null;
+  } catch(e) { return null; }
+}
+
+function drawAxes() {
+  const [ox, oy] = toC(0, 0);
+
+  // grid lines
+  ctx.strokeStyle = '#eeeeee';
+  ctx.lineWidth = 1;
+  for (let v = -WIN; v <= WIN; v++) {
+    const [ax] = toC(v, 0);
+    const [, by] = toC(0, v);
+    ctx.beginPath(); ctx.moveTo(ax, PAD); ctx.lineTo(ax, SIZE - PAD); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(PAD, by); ctx.lineTo(SIZE - PAD, by); ctx.stroke();
+  }
+
+  // axes
+  ctx.strokeStyle = '#aaa';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(PAD, oy); ctx.lineTo(SIZE - PAD, oy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ox, PAD); ctx.lineTo(ox, SIZE - PAD); ctx.stroke();
+
+  // tick labels
+  ctx.fillStyle = '#999';
+  ctx.font = '11px Arial, sans-serif';
+  ctx.textAlign = 'center';
+  for (let v = -WIN; v <= WIN; v++) {
+    if (v === 0) continue;
+    const [ax] = toC(v, 0);
+    const [, by] = toC(0, v);
+    if (v % 2 === 0) {
+      ctx.fillText(v, ax, oy + 15);
+      ctx.textAlign = 'right';
+      ctx.fillText(v, ox - 5, by + 4);
+      ctx.textAlign = 'center';
+    }
+  }
+
+  // axis labels
+  ctx.fillStyle = '#777';
+  ctx.font = '13px Arial';
+  ctx.fillText('x', SIZE - PAD + 14, oy + 4);
+  ctx.textAlign = 'left';
+  ctx.fillText('y', ox + 5, PAD - 8);
+}
+
+function drawField() {
+  const expr = document.getElementById('eqn').value.trim();
+  ctx.clearRect(0, 0, SIZE, SIZE);
+  drawAxes();
+
+  // half-tick in pixels = 0.5 units * pixels-per-unit * 0.5 (each side)
+  const ppu = (SIZE - 2 * PAD) / (2 * WIN);
+  const halfTick = 0.5 * ppu * 0.5;
+
+  let errs = 0;
+  for (let wx = -WIN; wx <= WIN; wx++) {
+    for (let wy = -WIN; wy <= WIN; wy++) {
+      const slope = safeEval(expr, wx, wy);
+      const [cx, cy] = toC(wx, wy);
+
+      // dot at the grid point
+      ctx.beginPath();
+      ctx.arc(cx, cy, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#ccc';
+      ctx.fill();
+
+      if (slope === null) { errs++; continue; }
+
+      // tick mark with correct slope angle
+      const ang = Math.atan(slope);
+      const cosA = Math.cos(ang);
+      const sinA = Math.sin(ang);
+
+      ctx.beginPath();
+      ctx.moveTo(cx - cosA * halfTick, cy + sinA * halfTick);
+      ctx.lineTo(cx + cosA * halfTick, cy - sinA * halfTick);
+      ctx.strokeStyle = '#444';
+      ctx.lineWidth = 1.4;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    }
+  }
+
+  const st = document.getElementById('status');
+  st.textContent = errs > 10 ? '⚠ some points undefined' : '✓';
+  st.style.color = errs > 10 ? '#e67' : '#4caf50';
+}
+
+function rk4(expr, x, y, h) {
+  const k1 = safeEval(expr, x, y); if (k1 === null) return null;
+  const k2 = safeEval(expr, x+h/2, y+k1*h/2); if (k2 === null) return null;
+  const k3 = safeEval(expr, x+h/2, y+k2*h/2); if (k3 === null) return null;
+  const k4 = safeEval(expr, x+h, y+k3*h); if (k4 === null) return null;
+  return (k1 + 2*k2 + 2*k3 + k4) / 6;
+}
+
+function drawCurve(x0, y0, color) {
+  const expr = document.getElementById('eqn').value.trim();
+  const dt = 0.02, steps = 1200;
+
+  function trace(dir) {
+    let x = x0, y = y0;
+    const pts = [[x, y]];
+    for (let i = 0; i < steps; i++) {
+      const s = rk4(expr, x, y, dir * dt);
+      if (s === null) break;
+      y += s * dt * dir;
+      x += dt * dir;
+      if (Math.abs(x) > WIN + 1 || Math.abs(y) > WIN * 3) break;
+      pts.push([x, y]);
+    }
+    return pts;
+  }
+
+  const pts = [...trace(-1).reverse(), ...trace(1).slice(1)];
+  ctx.beginPath();
+  pts.forEach(([wx, wy], i) => {
+    const [cx, cy] = toC(wx, wy);
+    i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
+  });
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // seed dot
+  const [sx, sy] = toC(x0, y0);
+  ctx.beginPath();
+  ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function drawAll() {
+  drawField();
+  curves.forEach(c => drawCurve(c.x0, c.y0, c.color));
+}
+
+// ── Solver ──────────────────────────────────────────────────────────
+function fmt(n) {
+  const r = Math.round(n * 10000) / 10000;
+  return r === Math.floor(r) ? String(Math.floor(r)) : String(r);
+}
+
+function solve(expr, x0, y0) {
+  // test helpers
+  const f = (x, y) => safeEval(expr, x, y);
+  const xs = [0, 0.5, 1, 2, -1];
+  const ys = [0, 1, 2, -1];
+
+  // ── dy/dx = f(x) only? ──
+  let xOnly = true;
+  for (const x of xs) {
+    const a = f(x, 0), b = f(x, 1), c = f(x, 2);
+    if (a === null || b === null || c === null || Math.abs(a-b) > 1e-7 || Math.abs(a-c) > 1e-7) { xOnly = false; break; }
+  }
+
+  if (xOnly) {
+    // constant? dy/dx = k
+    const vals = xs.map(x => f(x, 0));
+    if (vals.every(v => v !== null && Math.abs(v - vals[0]) < 1e-7)) {
+      const k = vals[0];
+      const C = y0 - k * x0;
+      const Cs = fmt(C);
+      const ks = fmt(k);
+      return C === 0 ? `y = ${ks}x` : `y = ${ks}x ${C >= 0 ? '+' : '-'} ${fmt(Math.abs(C))}`;
+    }
+    // dy/dx = kx?
+    const r1 = f(1, 0), r2 = f(2, 0);
+    if (r1 !== null && r2 !== null && r1 !== 0 && Math.abs(r2/r1 - 2) < 1e-5) {
+      const k = r1;
+      const C = y0 - k * x0 * x0 / 2;
+      return `y = (${fmt(k)}/2)x² ${C >= 0 ? '+' : '-'} ${fmt(Math.abs(C))}`;
+    }
+    // dy/dx = kx²?
+    const ra = f(1, 0), rb = f(2, 0);
+    if (ra !== null && rb !== null && ra !== 0 && Math.abs(rb/ra - 4) < 1e-5) {
+      const k = ra;
+      const C = y0 - k * x0 * x0 * x0 / 3;
+      return `y = (${fmt(k)}/3)x³ ${C >= 0 ? '+' : '-'} ${fmt(Math.abs(C))}`;
+    }
+    // sin(x)?
+    const sv = [f(0,0), f(Math.PI/2,0), f(Math.PI,0)];
+    if (sv.every(v=>v!==null) && Math.abs(sv[0]-0)<1e-5 && Math.abs(sv[1]-1)<1e-5 && Math.abs(sv[2]-0)<1e-5) {
+      const C = y0 + Math.cos(x0);
+      return `y = -cos(x) ${C >= 0 ? '+' : '-'} ${fmt(Math.abs(C))}`;
+    }
+    // cos(x)?
+    const cv = [f(0,0), f(Math.PI/2,0)];
+    if (cv.every(v=>v!==null) && Math.abs(cv[0]-1)<1e-5 && Math.abs(cv[1]-0)<1e-5) {
+      const C = y0 - Math.sin(x0);
+      return `y = sin(x) ${C >= 0 ? '+' : '-'} ${fmt(Math.abs(C))}`;
+    }
+  }
+
+  // ── dy/dx = ky ──
+  {
+    let ok = true;
+    const ratios = [];
+    for (const x of [0.3, 1, 1.7]) {
+      const v1 = f(x, 1), v2 = f(x, 2);
+      if (!v1 || !v2 || Math.abs(v2/v1 - 2) > 1e-5) { ok = false; break; }
+      ratios.push(v1);
+    }
+    if (ok && ratios.every(r => Math.abs(r - ratios[0]) < 1e-5)) {
+      const k = ratios[0];
+      const C = y0 / Math.exp(k * x0);
+      return `y = ${fmt(C)}e^(${fmt(k)}x)`;
+    }
+  }
+
+  // ── dy/dx = ay + b  (linear, const coeffs) ──
+  {
+    let linear = true;
+    const Asamples = [];
+    for (const x of xs) {
+      const f0 = f(x, 0), f1 = f(x, 1), f2 = f(x, 2);
+      if (f0===null||f1===null||f2===null) { linear=false; break; }
+      if (Math.abs((f2-f1)-(f1-f0)) > 1e-6) { linear=false; break; }
+      Asamples.push(f1 - f0);
+    }
+    if (linear && Asamples.every(v => Math.abs(v - Asamples[0]) < 1e-5)) {
+      const a = Asamples[0];
+      const b = f(0, 0);
+      if (b === null) { linear = false; }
+      else if (Math.abs(a) < 1e-9) {
+        const C = y0 - b * x0;
+        return `y = ${fmt(b)}x ${C>=0?'+':'-'} ${fmt(Math.abs(C))}`;
+      } else {
+        const eq = -b / a;
+        const C = (y0 - eq) / Math.exp(a * x0);
+        const eqs = fmt(eq);
+        const Cs = fmt(C);
+        const as = fmt(a);
+        return eq === 0
+          ? `y = ${Cs}e^(${as}x)`
+          : `y = ${Cs}e^(${as}x) ${eq>=0?'+':'-'} ${fmt(Math.abs(eq))}`;
+      }
+    }
+  }
+
+  // ── dy/dx = -x/y  (circles: x²+y²=C) ──
+  {
+    const t1 = f(1, 1), t2 = f(2, 1);
+    if (t1 !== null && t2 !== null && Math.abs(t1 + 1) < 1e-5 && Math.abs(t2 + 2) < 1e-5) {
+      const C = x0*x0 + y0*y0;
+      return `x² + y² = ${fmt(C)}`;
+    }
+  }
+
+  // ── dy/dx = y(1-y)  logistic ──
+  {
+    const t = f(0.5, 0.5);
+    const expected = 0.5 * (1 - 0.5);
+    if (t !== null && Math.abs(t - expected) < 1e-5) {
+      if (Math.abs(y0) < 1e-9 || Math.abs(y0 - 1) < 1e-9) return `y = ${fmt(y0)} (equilibrium)`;
+      const ratio = y0 / (1 - y0);
+      const C = -Math.log(Math.abs(ratio)) + x0;
+      return `y = 1 / (1 + ${fmt(1/ratio)}e^(-x))`;
+    }
+  }
+
+  return null;
+}
+
+function addCard(x0, y0, color) {
+  const expr = document.getElementById('eqn').value.trim();
+  const list = document.getElementById('solList');
+  const empty = list.querySelector('.empty');
+  if (empty) empty.remove();
+
+  const sol = solve(expr, x0, y0);
+  const card = document.createElement('div');
+  card.className = 'sol-card';
+  card.innerHTML = `
+    <div class="sol-point">y(${fmt(x0)}) = ${fmt(y0)}</div>
+    ${sol
+      ? `<div class="sol-answer">${sol}</div>`
+      : `<div class="sol-unsolved">Can't solve this one analytically.</div>`
+    }
+  `;
+  list.prepend(card);
+}
+
+function addCurve(x0, y0) {
+  const color = COLORS[ci % COLORS.length];
+  ci++;
+  curves.push({ x0, y0, color });
+  drawAll();
+  addCard(x0, y0, color);
+}
+
+// events
+document.getElementById('eqn').addEventListener('input', () => {
+  curves = []; ci = 0;
+  document.getElementById('solList').innerHTML = '<p class="empty">Click the graph or enter a point above to see the particular solution.</p>';
+  drawAll();
+});
+
+document.getElementById('drawBtn').addEventListener('click', () => {
+  const x0 = parseFloat(document.getElementById('x0').value);
+  const y0 = parseFloat(document.getElementById('y0').value);
+  if (!isNaN(x0) && !isNaN(y0)) addCurve(x0, y0);
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  curves = []; ci = 0;
+  document.getElementById('solList').innerHTML = '<p class="empty">Click the graph or enter a point above to see the particular solution.</p>';
+  drawAll();
+});
+
+canvas.addEventListener('click', e => {
+  const r = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / r.width;
+  const scaleY = canvas.height / r.height;
+  const [wx, wy] = toW((e.clientX - r.left) * scaleX, (e.clientY - r.top) * scaleY);
+  document.getElementById('x0').value = Math.round(wx * 100) / 100;
+  document.getElementById('y0').value = Math.round(wy * 100) / 100;
+  addCurve(wx, wy);
+});
+
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / r.width;
+  const scaleY = canvas.height / r.height;
+  const [wx, wy] = toW((e.clientX - r.left) * scaleX, (e.clientY - r.top) * scaleY);
+});
+
+drawField();
+</script>
+</body>
+</html>
