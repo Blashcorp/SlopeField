@@ -302,7 +302,7 @@ function drawAll() {
   curves.forEach(c => drawCurve(c.x0, c.y0, c.color));
 }
 
-// ── Solver ──────────────────────────────────────────────────────────
+// Solver 
 function fmt(n) {
   const r = Math.round(n * 10000) / 10000;
   return r === Math.floor(r) ? String(Math.floor(r)) : String(r);
@@ -314,7 +314,7 @@ function solve(expr, x0, y0) {
   const xs = [0, 0.5, 1, 2, -1];
   const ys = [0, 1, 2, -1];
 
-  // ── dy/dx = f(x) only? ──
+  // dy/dx = f(x) only? 
   let xOnly = true;
   for (const x of xs) {
     const a = f(x, 0), b = f(x, 1), c = f(x, 2);
@@ -359,7 +359,7 @@ function solve(expr, x0, y0) {
     }
   }
 
-  // ── dy/dx = ky ──
+  // dy/dx = ky 
   {
     let ok = true;
     const ratios = [];
@@ -375,7 +375,7 @@ function solve(expr, x0, y0) {
     }
   }
 
-  // ── dy/dx = ay + b  (linear, const coeffs) ──
+  // dy/dx = ay + b  (linear, const coeffs) 
   {
     let linear = true;
     const Asamples = [];
@@ -405,7 +405,7 @@ function solve(expr, x0, y0) {
     }
   }
 
-  // ── dy/dx = -x/y  (circles: x²+y²=C) ──
+  // dy/dx = -x/y  (circles: x²+y²=C)
   {
     const t1 = f(1, 1), t2 = f(2, 1);
     if (t1 !== null && t2 !== null && Math.abs(t1 + 1) < 1e-5 && Math.abs(t2 + 2) < 1e-5) {
@@ -414,7 +414,7 @@ function solve(expr, x0, y0) {
     }
   }
 
-  // ── dy/dx = y(1-y)  logistic ──
+  // dy/dx = y(1-y)  logistic
   {
     const t = f(0.5, 0.5);
     const expected = 0.5 * (1 - 0.5);
